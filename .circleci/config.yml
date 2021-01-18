@@ -1,56 +1,41 @@
+version: 2
 jobs:
   install:
     docker:
-      - image: cimg/python:3.9.1
-      - image: circleci/postgres:9.6.2
+      - image: circleci/python:3.9.1
+      - image: circleci/postgres:9.6.5
+        environment:
+          POSTGRES_DB: example
+          POSTGRES_USER: circleci
+          POSTGRES_PASSWORD: somePwd
+          POSTGRES_PORT: 5432
+          DATABASE_URL: postgresql://circleci:somePwd@localhost:5432/example
     working_directory: ~/repo
     steps:
       - checkout
-      - setup_remote_docker
       - restore_cache:
           keys:
             - dependencies-{{ checksum "requirements/dev.txt" }}-{{ checksum "requirements/prod.txt" }}
-      - run:
-          name: install python and dependencies
-          command: |
-            python3 -m venv venv
-            . venv/bin/activate
-            pip install -r requirements/dev.txt
+            # Fallback to using the latest cache if no exact match is found
+            - dependencies-
+      - run: 
+          name: Install dependencies
+          command: pip install -r requirements/dev.txt
       # Upgrade dependencies for sqlalchemy and Flask-SQLAlchemy to pass unit tests
       - run:
           command: pip install sqlalchemy --upgrade && pip install Flask-SQLAlchemy --upgrade
-
-      - run: docker container run --name flask_db_test -e POSTGRES_PASSWORD=somePwd -e POSTGRES_USER=myUsr -p 5432:5432 -d postgres
-      - run: sleep 1
-      - run:
-          name: db upgrade
+      - run: 
+          name: Setup dababase
+          environment:
+            FLASK_APP: /home/circleci/repo/autoapp.py
+            FLASK_DEBUG: 0 
+          command: flask db upgrade
+      - run: 
+          name: Flask test
           environment:
             FLASK_APP: /home/circleci/repo/autoapp.py
             FLASK_DEBUG: 0
-            POSTGRES_USER: postgres
-            POSTGRES_DB: bdtest
-            POSTGRES_PASSWORD: somePwd
-            POSTGRES_PORT: 5432
-            DATABASE_URL: postgresql://postgres:somePwd@localhost:5432/postgres
-          command: |
-            . venv/bin/activate
-            flask db upgrade
-      - run:
-          name: flask test
-          environment:
-            FLASK_APP: /home/circleci/repo/autoapp.py
-            FLASK_DEBUG: 0
-            POSTGRES_USER: postgres
-            POSTGRES_DB: bdtest
-            POSTGRES_PASSWORD: somePwd
-            POSTGRES_PORT: 5432
-            DATABASE_URL: postgresql://postgres:somePwd@localhost:5432/postgres
-          command: |
-            . venv/bin/activate
-            flask test
-      - run: docker container stop flask_db_test
-      - run: docker container rm flask_db_test
-      - run: unset DATABASE_URL
+          command: flask test
   back-deploy-heroku:
     docker:
       - image: buildpack-deps:trusty
@@ -62,7 +47,7 @@ jobs:
       - run:
           name: Smoke Test
           command: |
-            HTTPCODE=`curl -s -o /dev/null -w "%{http_code}"  https://devops-final-2020-2021-back.herokuapp.com//`
+            HTTPCODE=`curl -s -o /dev/null -w "%{http_code}" https://devops-final-2020-2021-back.herokuapp.com//`
             if [[ "$HTTPCODE" -ne 200 ]]; then
               echo "heroku app not responding, failing deploy" \
               exit 1; \
@@ -85,10 +70,9 @@ jobs:
             docker tag app $DOCKER_HUB_USER_ID/devops-final-back:latest
             docker push $DOCKER_HUB_USER_ID/devops-final-back:$CIRCLE_BUILD_NUM
             docker push $DOCKER_HUB_USER_ID/devops-final-back:latest
-version: 2.1
 workflows:
   version: 2
-  devopsTP4:
+  build-test:
     jobs:
       - install
       - back-deploy-heroku:
