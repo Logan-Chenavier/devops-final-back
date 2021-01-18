@@ -16,6 +16,9 @@ jobs:
             python3 -m venv venv
             . venv/bin/activate
             pip install -r requirements/dev.txt
+      # Upgrade dependencies for sqlalchemy and Flask-SQLAlchemy to pass unit tests
+      - run:
+          command: pip install sqlalchemy --upgrade && pip install Flask-SQLAlchemy --upgrade
 
       - run: docker container run --name flask_db_test -e POSTGRES_PASSWORD=somePwd -e POSTGRES_USER=myUsr -p 5432:5432 -d postgres
       - run: sleep 1
